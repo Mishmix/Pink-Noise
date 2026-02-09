@@ -32,12 +32,10 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
 .header h1{font-size:13px;font-weight:500;letter-spacing:3px;text-transform:uppercase;color:var(--t2);margin-bottom:6px}
 .header .sub{font-size:11px;letter-spacing:1.5px;color:var(--t3);text-transform:uppercase}
 
-/* ── Noise Type Toggle ── */
 .noise-toggle{
   display:flex;align-items:center;
   background:var(--s1);border-radius:100px;
-  padding:3px;gap:0;
-  border:1px solid rgba(200,149,108,.08);
+  padding:3px;border:1px solid rgba(200,149,108,.08);
   position:relative;
   opacity:0;animation:fu 1s var(--ease) .3s forwards;
 }
@@ -47,21 +45,16 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
   border:none;background:transparent;
   color:var(--t2);font-family:var(--font);
   font-size:13px;font-weight:500;letter-spacing:.8px;
-  cursor:pointer;outline:none;
-  transition:color .4s ease;
+  cursor:pointer;outline:none;transition:color .4s ease;
 }
 .noise-btn.on{color:var(--t1)}
 .noise-pill{
   position:absolute;top:3px;left:3px;
-  height:calc(100% - 6px);
-  border-radius:100px;
-  background:var(--s2);
-  border:1px solid rgba(200,149,108,.1);
-  transition:all .4s var(--ease);
-  pointer-events:none;
+  height:calc(100% - 6px);border-radius:100px;
+  background:var(--s2);border:1px solid rgba(200,149,108,.1);
+  transition:all .4s var(--ease);pointer-events:none;
 }
 
-/* ── Play Button ── */
 .pw{position:relative;opacity:0;animation:fu 1s var(--ease) .4s forwards}
 .pb{width:156px;height:156px;border-radius:50%;border:1.5px solid rgba(200,149,108,.12);background:var(--s1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .6s var(--ease);position:relative;outline:none}
 .pb::before{content:'';position:absolute;inset:-1px;border-radius:50%;background:radial-gradient(circle at 50% 40%,rgba(200,149,108,.04),transparent 70%);pointer-events:none}
@@ -112,6 +105,9 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
 
 .cd{margin-top:12px;font-size:32px;font-weight:300;letter-spacing:2px;color:var(--t3);font-variant-numeric:tabular-nums;min-height:40px;transition:color .5s}
 .cd.vis{color:var(--t2)}
+/* Paused timer blinks gently */
+.cd.paused{animation:blink 2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
 
 @keyframes fu{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @media(max-height:700px){.app{gap:24px}.pb{width:130px;height:130px}.controls{gap:20px}.cd{font-size:26px;min-height:32px}}
@@ -128,7 +124,6 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
     <div class="sub">Deep Sleep Generator</div>
   </div>
 
-  <!-- Noise Type Toggle -->
   <div class="noise-toggle" id="noiseToggle">
     <button class="noise-btn on" data-type="pink" id="btnPink">Pink</button>
     <button class="noise-btn" data-type="brown" id="btnBrown">Brown</button>
@@ -186,56 +181,62 @@ body{display:flex;flex-direction:column;align-items:center;justify-content:cente
 
 <script>
 /* ═══════════════════════════════════════════════════════════════
-   SLEEP NOISE GENERATOR — Pink + Brown
+   SLEEP NOISE GENERATOR v5
+   Pink (-3dB/oct) + Brown (-6dB/oct) · True Stereo
    
-   ┌─────────────────────────────────────────────────────────┐
-   │  TWO NOISE TYPES:                                      │
-   │                                                        │
-   │  PINK  (-3 dB/octave, 1/f power spectrum)              │
-   │  ├─ Paul Kellet 7-stage IIR filter                     │
-   │  ├─ Corrected: +1.5dB lowshelf@80Hz, -1dB high@12kHz  │
-   │  └─ Best for: masking mid-freq noise, general sleep    │
-   │                                                        │
-   │  BROWN (-6 dB/octave, 1/f² power spectrum)             │
-   │  ├─ Leaky integrator: y[n] = 0.998·y[n-1] + white     │
-   │  ├─ Corrected: -2dB lowshelf@40Hz (prevents rumble)    │
-   │  └─ Best for: deep bass immersion, blocking traffic    │
-   │                                                        │
-   │  Both use TRUE STEREO (independent RNG per channel)    │
-   └─────────────────────────────────────────────────────────┘
+   BACKGROUND AUDIO STRATEGY:
+   ─────────────────────────
+   Mobile browsers aggressively suspend audio when:
+   - Screen locks
+   - Browser goes to background
+   - Tab switches
    
-   BROWN NOISE ALGORITHM:
-   ──────────────────────
-   Brownian (red) noise = integrated white noise.
-   Each sample = previous sample × leak + new white sample.
+   Countermeasures used (layered defense):
    
-   The leak factor (0.998) serves two purposes:
-   1. Prevents DC drift (output wandering to ±infinity)
-   2. Creates a natural -6dB/octave rolloff
+   1. Silent <audio> loop — keeps the browser audio session
+      "active" at OS level. This is the #1 most reliable trick.
+      The browser thinks media is playing → doesn't kill the tab.
    
-   Without leak, the signal is a random walk that eventually
-   clips. With leak, it's a stable first-order lowpass filter
-   applied to white noise, producing the characteristic deep
-   rumble of Brownian motion.
+   2. Media Session API — registers play/pause handlers so the
+      OS shows lock-screen controls. This signals to the browser
+      that this tab is an active media player.
    
-   The output is scaled by 0.8 and soft-clipped via tanh()
-   to prevent any rare amplitude spikes from causing pops.
+   3. Web Locks API — navigator.locks.request() prevents the
+      browser from freezing/discarding the tab. Works in Chrome.
+   
+   4. Wake Lock API — keeps screen on (optional, for when user
+      wants to see the timer counting down).
+   
+   5. Visibility change handler — when tab regains focus,
+      immediately resumes AudioContext if it was suspended.
+   
+   6. Periodic AudioContext check — setInterval pings the
+      context state every 10s and resumes if suspended.
+   
+   TIMER BEHAVIOR:
+   ──────────────
+   Pause does NOT reset the timer. It freezes remaining time.
+   Play resumes the timer from where it was paused.
+   Selecting a new timer duration resets it (as expected).
    ═══════════════════════════════════════════════════════════════ */
 
-let playing = false, vol = 0.7;
-let noiseType = 'pink'; // 'pink' or 'brown'
-let timerSec = 0, timerEnd = null, timerIv = null;
+// ─── State ───
+let playing = false, vol = 0.7, noiseType = 'pink';
 let audioCtx = null, gainNode = null, scriptNode = null;
 let lowShelf = null, highShelf = null;
+let wakeLockRef = null;
 
-// ── Pink noise filter states (Paul Kellet, 7 stages × 2 ch) ──
-const pL = new Float64Array(7);
-const pR = new Float64Array(7);
+// Timer state: remainingMs persists across pause/play
+let timerTotalSec = 0;     // 0 = infinity
+let timerRemainingMs = 0;  // ms left (survives pause)
+let timerEnd = null;       // absolute timestamp when timer expires
+let timerIv = null;        // setInterval ref
 
-// ── Brown noise integrator states (1 per channel) ──
+// Noise filter states
+const pL = new Float64Array(7), pR = new Float64Array(7);
 let brL = 0, brR = 0;
 
-// ── Paul Kellet pink noise ──
+// ─── Noise Generators ───
 function pinkSample(b) {
   const w = Math.random() * 2 - 1;
   b[0] = 0.99886 * b[0] + w * 0.0555179;
@@ -249,10 +250,6 @@ function pinkSample(b) {
   return out * 0.11;
 }
 
-// ── Brown noise (leaky integrator) ──
-// y[n] = leak × y[n-1] + white[n]
-// leak = 0.998 → -6dB/oct with stable DC
-// tanh soft-clips to prevent amplitude spikes
 function brownSampleL() {
   brL = 0.998 * brL + (Math.random() * 2 - 1) * 0.02;
   return Math.tanh(brL * 0.8);
@@ -262,7 +259,7 @@ function brownSampleR() {
   return Math.tanh(brR * 0.8);
 }
 
-// ── Audio setup ──
+// ─── Audio Engine ───
 function ensureAudio() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -271,26 +268,17 @@ function ensureAudio() {
   scriptNode.onaudioprocess = function(e) {
     const L = e.outputBuffer.getChannelData(0);
     const R = e.outputBuffer.getChannelData(1);
-
     if (noiseType === 'pink') {
-      for (let i = 0; i < L.length; i++) {
-        L[i] = pinkSample(pL);
-        R[i] = pinkSample(pR);
-      }
+      for (let i = 0; i < L.length; i++) { L[i] = pinkSample(pL); R[i] = pinkSample(pR); }
     } else {
-      for (let i = 0; i < L.length; i++) {
-        L[i] = brownSampleL();
-        R[i] = brownSampleR();
-      }
+      for (let i = 0; i < L.length; i++) { L[i] = brownSampleL(); R[i] = brownSampleR(); }
     }
   };
 
-  // Spectral correction EQ
   lowShelf = audioCtx.createBiquadFilter();
   lowShelf.type = 'lowshelf';
   highShelf = audioCtx.createBiquadFilter();
   highShelf.type = 'highshelf';
-
   applyEQ();
 
   gainNode = audioCtx.createGain();
@@ -302,25 +290,18 @@ function ensureAudio() {
   gainNode.connect(audioCtx.destination);
 }
 
-// ── EQ presets per noise type ──
 function applyEQ() {
   if (!lowShelf) return;
   if (noiseType === 'pink') {
-    // Pink: boost sub-bass, tame highs
-    lowShelf.frequency.value = 80;
-    lowShelf.gain.value = 1.5;
-    highShelf.frequency.value = 12000;
-    highShelf.gain.value = -1.0;
+    lowShelf.frequency.value = 80; lowShelf.gain.value = 1.5;
+    highShelf.frequency.value = 12000; highShelf.gain.value = -1.0;
   } else {
-    // Brown: tame excessive sub-bass rumble, slight high presence
-    lowShelf.frequency.value = 40;
-    lowShelf.gain.value = -2.0;
-    highShelf.frequency.value = 8000;
-    highShelf.gain.value = 0.5;
+    lowShelf.frequency.value = 40; lowShelf.gain.value = -2.0;
+    highShelf.frequency.value = 8000; highShelf.gain.value = 0.5;
   }
 }
 
-// ── Fade ──
+// ─── Fade ───
 const FADE = 2.5;
 function fadeIn() {
   const g = gainNode.gain, t = audioCtx.currentTime;
@@ -333,7 +314,6 @@ function fadeOut(cb) {
   g.linearRampToValueAtTime(0.0001, t + FADE);
   setTimeout(cb, FADE * 1000 + 100);
 }
-// Short crossfade for switching noise type while playing
 function crossfade() {
   const g = gainNode.gain, t = audioCtx.currentTime;
   g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
@@ -346,94 +326,194 @@ function crossfade() {
   }, 550);
 }
 
-// ── Toggle play ──
+// ═════════════════════════════════════════════
+//  BACKGROUND AUDIO — layered defense system
+// ═════════════════════════════════════════════
+
+// 1. Silent audio loop — keeps audio session alive at OS level
+let silentAudio = null;
+function createSilentAudio() {
+  if (silentAudio) return;
+  // Generate a 1-second silent WAV in-memory
+  // 44100 samples × 2 bytes × 1 channel = 88200 bytes of silence
+  silentAudio = new Audio();
+  silentAudio.src = createSilentWavUrl(2); // 2 seconds of silence
+  silentAudio.loop = true;
+  silentAudio.volume = 0.001; // Near-silent but non-zero
+  silentAudio.setAttribute('playsinline', '');
+}
+
+function createSilentWavUrl(durationSec) {
+  const sampleRate = 8000; // Low rate = small file
+  const numSamples = sampleRate * durationSec;
+  const dataSize = numSamples * 2; // 16-bit mono
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // WAV header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);     // chunk size
+  view.setUint16(20, 1, true);      // PCM
+  view.setUint16(22, 1, true);      // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);      // block align
+  view.setUint16(34, 16, true);     // bits per sample
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+  // Data section is all zeros = silence
+
+  const blob = new Blob([buffer], { type: 'audio/wav' });
+  return URL.createObjectURL(blob);
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function startSilentAudio() {
+  createSilentAudio();
+  const p = silentAudio.play();
+  if (p) p.catch(() => {}); // Ignore autoplay blocks
+}
+
+function stopSilentAudio() {
+  if (silentAudio) { silentAudio.pause(); silentAudio.currentTime = 0; }
+}
+
+// 2. Media Session API
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: noiseType === 'pink' ? 'Pink Noise' : 'Brown Noise',
+    artist: 'Sleep Noise',
+    album: 'Deep Sleep'
+  });
+  navigator.mediaSession.setActionHandler('play', () => { if (!playing) toggle(); });
+  navigator.mediaSession.setActionHandler('pause', () => { if (playing) toggle(); });
+  navigator.mediaSession.setActionHandler('stop', () => { if (playing) toggle(); });
+  navigator.mediaSession.playbackState = 'playing';
+}
+
+// 3. Web Locks API — prevents tab discard/freeze
+let webLockController = null;
+function acquireWebLock() {
+  if (!('locks' in navigator)) return;
+  // AbortController lets us release the lock later
+  webLockController = new AbortController();
+  navigator.locks.request('sleep-noise-playing', { signal: webLockController.signal }, () => {
+    // Hold the lock until aborted — return a never-resolving promise
+    return new Promise(() => {});
+  }).catch(() => {}); // Catch abort
+}
+function releaseWebLock() {
+  if (webLockController) { webLockController.abort(); webLockController = null; }
+}
+
+// 4. Wake Lock API
+async function acquireWakeLock() {
+  try {
+    if ('wakeLock' in navigator) wakeLockRef = await navigator.wakeLock.request('screen');
+  } catch(_) {}
+}
+function releaseWakeLock() {
+  if (wakeLockRef) { wakeLockRef.release().catch(() => {}); wakeLockRef = null; }
+}
+
+// 5. Periodic AudioContext health check
+let healthCheckIv = null;
+function startHealthCheck() {
+  healthCheckIv = setInterval(() => {
+    if (playing && audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }, 10000); // Every 10 seconds
+}
+function stopHealthCheck() {
+  if (healthCheckIv) { clearInterval(healthCheckIv); healthCheckIv = null; }
+}
+
+// 6. Visibility change handler
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && playing) {
+    // Tab regained focus — make sure everything is running
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    acquireWakeLock();
+    // Re-sync timer display (time kept ticking via timerEnd timestamp)
+    if (timerEnd) tickFn();
+  }
+});
+
+// ─── Play / Stop ───
 async function toggle() {
   ensureAudio();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
-  playing ? doStop() : doStart();
+  playing ? doPause() : doStart();
 }
 
 function doStart() {
   playing = true;
   document.getElementById('pb').classList.add('on');
   document.getElementById('viz').classList.add('active');
-  // Reset states
-  pL.fill(0); pR.fill(0); brL = 0; brR = 0;
+
+  // Reset noise states only on fresh start (not resume)
+  if (gainNode.gain.value < 0.001) { pL.fill(0); pR.fill(0); brL = 0; brR = 0; }
+
   fadeIn();
-  startTimerFn();
-  if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: noiseType === 'pink' ? 'Pink Noise' : 'Brown Noise',
-      artist: 'Deep Sleep'
-    });
-    navigator.mediaSession.setActionHandler('pause', toggle);
-    navigator.mediaSession.setActionHandler('play', toggle);
-    navigator.mediaSession.playbackState = 'playing';
-  }
-  try { if ('wakeLock' in navigator) navigator.wakeLock.request('screen'); } catch(_){}
+
+  // Resume or start timer
+  resumeTimer();
+
+  // Activate all background persistence layers
+  startSilentAudio();
+  setupMediaSession();
+  acquireWebLock();
+  acquireWakeLock();
+  startHealthCheck();
 }
 
-function doStop() {
+function doPause() {
+  // Freeze timer (save remaining time)
+  pauseTimer();
+
   fadeOut(() => {
     playing = false;
     document.getElementById('pb').classList.remove('on');
     document.getElementById('viz').classList.remove('active');
-    clearTimerFn();
+
+    // Release background locks
+    stopSilentAudio();
+    releaseWebLock();
+    releaseWakeLock();
+    stopHealthCheck();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
 }
 
-// ── Noise type switch ──
-const btnPink = document.getElementById('btnPink');
-const btnBrown = document.getElementById('btnBrown');
-const pill = document.getElementById('noisePill');
+function doFullStop() {
+  // Called by timer expiry — full reset
+  fadeOut(() => {
+    playing = false;
+    document.getElementById('pb').classList.remove('on');
+    document.getElementById('viz').classList.remove('active');
+    timerRemainingMs = 0;
+    timerEnd = null;
+    stopTimerInterval();
+    updateTimerDisplay(0);
+    document.getElementById('cd').classList.remove('vis', 'paused');
 
-function positionPill() {
-  const active = noiseType === 'pink' ? btnPink : btnBrown;
-  const parent = document.getElementById('noiseToggle');
-  const pr = parent.getBoundingClientRect();
-  const ar = active.getBoundingClientRect();
-  pill.style.width = ar.width + 'px';
-  pill.style.left = (ar.left - pr.left) + 'px';
+    stopSilentAudio();
+    releaseWebLock();
+    releaseWakeLock();
+    stopHealthCheck();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  });
 }
 
-function switchNoise(type) {
-  if (type === noiseType) return;
-  noiseType = type;
-
-  btnPink.classList.toggle('on', type === 'pink');
-  btnBrown.classList.toggle('on', type === 'brown');
-  positionPill();
-
-  // Update header subtitle
-  document.querySelector('.header .sub').textContent =
-    type === 'pink' ? 'Pink · Deep Sleep' : 'Brown · Deep Sleep';
-
-  // Update viz color
-  vizHue = type === 'pink' ? '200,149,108' : '160,140,120';
-
-  if (playing) {
-    crossfade();
-    // Update media session
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: type === 'pink' ? 'Pink Noise' : 'Brown Noise',
-        artist: 'Deep Sleep'
-      });
-    }
-  } else {
-    applyEQ();
-  }
-}
-
-btnPink.addEventListener('click', () => switchNoise('pink'));
-btnBrown.addEventListener('click', () => switchNoise('brown'));
-
-// Init pill position after fonts load
-requestAnimationFrame(() => requestAnimationFrame(positionPill));
-addEventListener('resize', positionPill);
-
-// ── Volume ──
+// ─── Volume ───
 function setVol(v) {
   vol = Math.max(0, Math.min(1, v));
   document.getElementById('sf').style.width = (vol * 100) + '%';
@@ -455,20 +535,150 @@ stEl.addEventListener('pointermove', e => { if(drag) onSl(e); });
 stEl.addEventListener('pointerup', () => drag=false);
 stEl.addEventListener('pointercancel', () => drag=false);
 
-// ── Timer ──
-function selectTimer(seconds) {
-  timerSec = seconds;
+// ─── Noise Type Switch ───
+const btnPink = document.getElementById('btnPink');
+const btnBrown = document.getElementById('btnBrown');
+const pill = document.getElementById('noisePill');
+
+function positionPill() {
+  const active = noiseType === 'pink' ? btnPink : btnBrown;
+  const parent = document.getElementById('noiseToggle');
+  const pr = parent.getBoundingClientRect();
+  const ar = active.getBoundingClientRect();
+  pill.style.width = ar.width + 'px';
+  pill.style.left = (ar.left - pr.left) + 'px';
+}
+
+function switchNoise(type) {
+  if (type === noiseType) return;
+  noiseType = type;
+  btnPink.classList.toggle('on', type === 'pink');
+  btnBrown.classList.toggle('on', type === 'brown');
+  positionPill();
+  document.querySelector('.header .sub').textContent =
+    type === 'pink' ? 'Pink · Deep Sleep' : 'Brown · Deep Sleep';
+  vizHue = type === 'pink' ? '200,149,108' : '160,140,120';
+  if (playing) {
+    crossfade();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: type === 'pink' ? 'Pink Noise' : 'Brown Noise',
+        artist: 'Sleep Noise'
+      });
+    }
+  } else { applyEQ(); }
+}
+
+btnPink.addEventListener('click', () => switchNoise('pink'));
+btnBrown.addEventListener('click', () => switchNoise('brown'));
+requestAnimationFrame(() => requestAnimationFrame(positionPill));
+addEventListener('resize', positionPill);
+
+// ═══════════════════════════════════════
+//  TIMER — pause/resume logic
+// ═══════════════════════════════════════
+
+// Select timer duration (resets remaining time)
+function selectTimer(totalSec) {
+  timerTotalSec = totalSec;
+  timerRemainingMs = totalSec * 1000; // Reset remaining
+  timerEnd = null;
+
   document.querySelectorAll('.tb').forEach(x => x.classList.remove('on'));
-  if (seconds === 0) {
+  if (totalSec === 0) {
     document.querySelector('.tb[data-m="0"]').classList.add('on');
   } else {
-    const mins = seconds / 60;
+    const mins = totalSec / 60;
     const btn = document.querySelector(`.tb[data-m="${mins}"]`);
     if (btn) btn.classList.add('on');
   }
-  if (playing) { clearTimerFn(); startTimerFn(); }
+
+  // If playing, restart the timer with new duration
+  if (playing) {
+    stopTimerInterval();
+    resumeTimer();
+  } else {
+    // Not playing: show the selected duration statically
+    stopTimerInterval();
+    if (totalSec > 0) {
+      updateTimerDisplay(totalSec * 1000);
+      document.getElementById('cd').classList.add('vis');
+      document.getElementById('cd').classList.remove('paused');
+    } else {
+      document.getElementById('cd').textContent = '';
+      document.getElementById('cd').classList.remove('vis', 'paused');
+    }
+  }
 }
 
+// Resume timer from timerRemainingMs
+function resumeTimer() {
+  stopTimerInterval();
+  const cd = document.getElementById('cd');
+  cd.classList.remove('paused');
+
+  if (timerTotalSec <= 0 || timerRemainingMs <= 0) {
+    cd.textContent = ''; cd.classList.remove('vis');
+    return;
+  }
+
+  timerEnd = Date.now() + timerRemainingMs;
+  cd.classList.add('vis');
+  tickFn();
+  timerIv = setInterval(tickFn, 1000);
+}
+
+// Pause timer: save remaining, stop interval
+function pauseTimer() {
+  if (timerEnd) {
+    timerRemainingMs = Math.max(0, timerEnd - Date.now());
+    timerEnd = null;
+  }
+  stopTimerInterval();
+
+  const cd = document.getElementById('cd');
+  if (timerTotalSec > 0 && timerRemainingMs > 0) {
+    cd.classList.add('paused'); // Blinking effect
+    updateTimerDisplay(timerRemainingMs);
+  }
+}
+
+function stopTimerInterval() {
+  if (timerIv) { clearInterval(timerIv); timerIv = null; }
+}
+
+function tickFn() {
+  const rem = Math.max(0, timerEnd - Date.now());
+
+  if (rem <= 0) {
+    doFullStop();
+    return;
+  }
+
+  // Gentle fade before timer expires
+  const fadeMs = Math.min(10000, timerTotalSec * 500);
+  if (rem <= fadeMs && playing && gainNode) {
+    const g = gainNode.gain, t = audioCtx.currentTime;
+    if (g.value > 0.01) {
+      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(0.0001, t + rem / 1000);
+    }
+  }
+
+  updateTimerDisplay(rem);
+}
+
+function updateTimerDisplay(ms) {
+  const cd = document.getElementById('cd');
+  if (ms <= 0) { cd.textContent = ''; return; }
+  const s = Math.ceil(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = s % 60;
+  cd.textContent = h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`
+    : `${m}:${String(sc).padStart(2,'0')}`;
+}
+
+// Timer button handlers
 document.querySelectorAll('.tb').forEach(b => {
   b.addEventListener('click', () => selectTimer((+b.dataset.m) * 60));
 });
@@ -485,55 +695,13 @@ document.getElementById('custIn').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('custSet').click();
 });
 
-function startTimerFn() {
-  clearTimerFn();
-  const cd = document.getElementById('cd');
-  if (timerSec <= 0) { cd.textContent=''; cd.classList.remove('vis'); return; }
-  timerEnd = Date.now() + timerSec * 1000;
-  cd.classList.add('vis');
-  tickFn();
-  timerIv = setInterval(tickFn, 1000);
-}
-
-function tickFn() {
-  const rem = Math.max(0, timerEnd - Date.now());
-  const cd = document.getElementById('cd');
-  if (rem <= 0) { doStop(); return; }
-
-  const fadeStart = Math.min(10000, timerSec * 500);
-  if (rem <= fadeStart && playing && gainNode) {
-    const g = gainNode.gain, t = audioCtx.currentTime;
-    if (g.value > 0.01) {
-      g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
-      g.linearRampToValueAtTime(0.0001, t + rem / 1000);
-    }
-  }
-
-  const s = Math.ceil(rem / 1000);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = s % 60;
-  cd.textContent = h > 0
-    ? `${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`
-    : `${m}:${String(sc).padStart(2,'0')}`;
-}
-
-function clearTimerFn() {
-  if (timerIv) { clearInterval(timerIv); timerIv = null; }
-  timerEnd = null;
-  const cd = document.getElementById('cd');
-  cd.textContent = ''; cd.classList.remove('vis');
-}
-
+// Play button
 document.getElementById('pb').addEventListener('click', toggle);
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && playing && audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-});
-
-// ── Canvas Viz ──
+// ─── Canvas Viz ───
 const cvs = document.getElementById('viz');
 const cx = cvs.getContext('2d');
-let vizHue = '200,149,108'; // amber for pink, cooler for brown
-
+let vizHue = '200,149,108';
 const cir = Array.from({length:5}, (_,i) => ({
   x:.5, y:.45+i*.03, br:.12+i*.06, ph:i*1.2, sp:.15+i*.05, op:.025-i*.003
 }));
